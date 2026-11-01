@@ -1,7 +1,7 @@
 import cors from "cors";
 import "dotenv/config";
 import express from "express";
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 
 // first of all daclare APP and Port/Server address then call app.use .otherwise backend will be chrash
 const app = express();
@@ -42,6 +42,41 @@ app.get("/AllBooks", async (req, res) => {
   } catch (error) {
     res.status(500).send({
       message: "Failed to fetch books",
+    });
+  }
+});
+
+// here i make a route for _id
+// Get Single Book Details by ID
+app.get("/AllBooks/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validate MongoDB ObjectId
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        message: "Invalid book ID",
+      });
+    }
+
+    // Find book by ID
+    const book = await allBooks.findOne({
+      _id: new ObjectId(id),
+    });
+
+    // Check if book exists
+    if (!book) {
+      return res.status(404).send({
+        message: "Book not found",
+      });
+    }
+
+    res.status(200).send(book);
+  } catch (error) {
+    console.error("Book details fetching error:", error);
+
+    res.status(500).send({
+      message: "Failed to fetch book details",
     });
   }
 });
