@@ -131,9 +131,9 @@ app.post("/AddBook", async (req, res) => {
       });
     }
 
-    const quantity = Number(data.quantity ?? 1);
+    const totalCopies = Number(data.totalCopies ?? 1);
 
-    if (!Number.isInteger(quantity) || quantity < 1) {
+    if (!Number.isInteger(totalCopies) || totalCopies < 1) {
       return res.status(400).json({
         success: false,
         message: "Quantity must be a positive integer",
@@ -142,7 +142,7 @@ app.post("/AddBook", async (req, res) => {
 
     const newBook = {
       ...data,
-      quantity,
+      totalCopies,
       createdAt: new Date(),
     };
 
