@@ -170,5 +170,98 @@ if (process.env.NODE_ENV !== "production") {
   });
 }
 
+// Get My Books
+app.get("/MyBooks", async (req, res) => {
+  try {
+    // 1. Verify internal secret
+    const secret = req.headers["x-internal-secret"];
+
+    if (secret !== process.env.INTERNAL_API_SECRET) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized access",
+      });
+    }
+
+    // 2. Get user ID
+    const userId = req.headers["x-user-id"];
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
+    // 3. Get books from allBooks collection
+    const myBooks = await db
+      .collection("allBooks")
+      .find({ userId: userId })
+      .toArray();
+
+    // 4. Return books
+    return res.status(200).json({
+      success: true,
+      totalBooks: myBooks.length,
+      books: myBooks,
+    });
+  } catch (error) {
+    console.error("MyBooks Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch My Books",
+    });
+  }
+});
+
+// Get My Borrowed Books
+app.get("/MyBorrow", async (req, res) => {
+  try {
+    // 1. Verify internal secret
+    const secret = req.headers["x-internal-secret"];
+
+    if (secret !== process.env.INTERNAL_API_SECRET) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized access",
+      });
+    }
+
+    // 2. Get user ID
+    const userId = req.headers["x-user-id"];
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
+    // 3. Get borrowed books from Borrow collection
+    const myBorrow = await db
+      .collection("Borrow")
+      .find({
+        userId: userId,
+        status: "borrowed",
+      })
+      .toArray();
+
+    // 4. Return borrowed books
+    return res.status(200).json({
+      success: true,
+      totalBorrowed: myBorrow.length,
+      borrowedBooks: myBorrow,
+    });
+  } catch (error) {
+    console.error("MyBorrow Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch borrowed books",
+    });
+  }
+});
+
 // Vercel Serverless Export
 export default app;
