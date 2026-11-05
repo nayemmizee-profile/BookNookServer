@@ -421,13 +421,25 @@ app.get("/MyBorrow", async (req, res) => {
    GET MY BORROWED BOOKS
 ================================ */
 
-app.get("/MyBorrow", async (req, res) => {
+/* ===============================
+   GET MY BORROWED BOOKS
+================================ */
+
+// Borrow a Book
+// ========================================
+// Borrow a Book
+// START: Replace existing POST /Borrow API
+// ========================================
+
+app.post("/Borrow", async (req, res) => {
+  const session = client.startSession();
+
   try {
     // 1. Verify internal secret
     const secret = req.headers["x-internal-secret"];
 
     if (secret !== process.env.INTERNAL_API_SECRET) {
-      return res.status(401).send({
+      return res.status(401).json({
         success: false,
         message: "Unauthorized access",
       });
@@ -437,45 +449,151 @@ app.get("/MyBorrow", async (req, res) => {
     const userId = req.headers["x-user-id"];
 
     if (!userId) {
-      return res.status(400).send({
+      return res.status(400).json({
         success: false,
         message: "User ID is required",
       });
     }
 
-    // 3. Connect to Borrow collection
+    // 3. Get book ID
+    const { bookId } = req.body;
+
+    if (!ObjectId.isValid(bookId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid Book ID",
+      });
+    }
+
+    // 4. Connect Borrow collection
     const borrowCollection = db.collection("Borrow");
 
-    // 4. Find active borrowed books
-    const borrowedBooks = await borrowCollection
-      .find({
-        userId: userId,
-        status: "Borrowed",
-      })
-      .sort({ borrowDate: -1 })
-      .toArray();
+    // 5. Start MongoDB Transaction
+    session.startTransaction();
 
-    // 5. Send response
-    res.status(200).send({
+    // 6. Find book
+    const book = await allBooks.findOne(
+      {
+        _id: new ObjectId(bookId),
+      },
+      { session },
+    );
+
+    if (!book) {
+      await session.abortTransaction();
+
+      return res.status(404).json({
+        success: false,
+        message: "Book not found",
+      });
+    }
+
+    // 7. Check existing active borrow
+    const existingBorrow = await borrowCollection.findOne(
+      {
+        userId,
+        bookId,
+        status: "Borrowed",
+      },
+      { session },
+    );
+
+    if (existingBorrow) {
+      await session.abortTransaction();
+
+      return res.status(409).json({
+        success: false,
+        message: "You have already borrowed this book",
+      });
+    }
+
+    // 8. Decrease available book copies
+    const stockUpdate = await allBooks.updateOne(
+      {
+        _id: new ObjectId(bookId),
+        totalCopies: { $gt: 0 },
+      },
+      {
+        $inc: { totalCopies: -1 },
+      },
+      { session },
+    );
+
+    if (stockUpdate.modifiedCount === 0) {
+      await session.abortTransaction();
+
+      return res.status(409).json({
+        success: false,
+        message: "Book is currently unavailable",
+      });
+    }
+
+    // 9. Set borrow and return dates
+    const borrowDate = new Date();
+    const returnDate = new Date();
+
+    returnDate.setDate(returnDate.getDate() + 14);
+
+    // 10. Create borrow record
+    const borrowData = {
+      userId,
+      bookId,
+      bookTitle: book.title,
+      author: book.author,
+      bookImage: book.image,
+      category: book.category,
+      borrowDate,
+      returnDate,
+      status: "Borrowed",
+      createdAt: new Date(),
+    };
+
+    const result = await borrowCollection.insertOne(borrowData, {
+      session,
+    });
+
+    // 11. Commit Transaction
+    await session.commitTransaction();
+
+    // 12. Success response
+    return res.status(201).json({
       success: true,
-      totalBorrowed: borrowedBooks.length,
-      borrowedBooks,
+      message: "Book borrowed successfully!",
+      borrowId: result.insertedId.toString(),
     });
   } catch (error) {
-    console.error("MyBorrow Backend Error:", error);
+    // Rollback if any operation fails
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
 
-    res.status(500).send({
+    console.error("Borrow Book Error:", error);
+
+    return res.status(500).json({
       success: false,
-      message: "Failed to fetch borrowed books",
+      message: "Failed to borrow book",
     });
+  } finally {
+    await session.endSession();
   }
 });
+
+// ========================================
+// END: Existing POST /Borrow API
+// ========================================
 
 /* ===============================
    RETURN BORROWED BOOK
 ================================ */
 
+// ========================================
+// RETURN BORROWED BOOK
+// START: Replace existing PATCH /ReturnBook API
+// ========================================
+
 app.patch("/ReturnBook", async (req, res) => {
+  const session = client.startSession();
+
   try {
     // 1. Verify internal secret
     const secret = req.headers["x-internal-secret"];
@@ -510,7 +628,34 @@ app.patch("/ReturnBook", async (req, res) => {
     // 4. Connect collection
     const borrowCollection = db.collection("Borrow");
 
-    // 5. Update only the owner's active borrow
+    // 5. Start MongoDB Transaction
+    session.startTransaction();
+
+    // 6. Find owner's active borrow record
+    const borrowRecord = await borrowCollection.findOne(
+      {
+        _id: new ObjectId(borrowId),
+        userId: userId,
+        status: "Borrowed",
+      },
+      { session },
+    );
+
+    if (!borrowRecord) {
+      await session.abortTransaction();
+
+      return res.status(404).send({
+        success: false,
+        message: "Borrow record not found or already returned.",
+      });
+    }
+
+    // 7. Validate book ID
+    if (!ObjectId.isValid(borrowRecord.bookId)) {
+      throw new Error("Invalid book ID in borrow record");
+    }
+
+    // 8. Update borrow status
     const result = await borrowCollection.updateOne(
       {
         _id: new ObjectId(borrowId),
@@ -523,30 +668,61 @@ app.patch("/ReturnBook", async (req, res) => {
           returnedAt: new Date(),
         },
       },
+      { session },
     );
 
-    // 6. Check if book exists
-    if (result.matchedCount === 0) {
+    if (result.modifiedCount === 0) {
+      await session.abortTransaction();
+
       return res.status(404).send({
         success: false,
         message: "Borrow record not found or already returned.",
       });
     }
 
-    // 7. Success response
-    res.status(200).send({
+    // 9. Increase available book copies
+    const stockUpdate = await allBooks.updateOne(
+      {
+        _id: new ObjectId(borrowRecord.bookId),
+      },
+      {
+        $inc: { totalCopies: 1 },
+      },
+      { session },
+    );
+
+    if (stockUpdate.matchedCount === 0) {
+      throw new Error("Original book not found in allBooks collection");
+    }
+
+    // 10. Commit Transaction
+    await session.commitTransaction();
+
+    // 11. Success response
+    return res.status(200).send({
       success: true,
       message: "Book returned successfully!",
     });
   } catch (error) {
+    // Rollback if any operation fails
+    if (session.inTransaction()) {
+      await session.abortTransaction();
+    }
+
     console.error("Return Book Error:", error);
 
-    res.status(500).send({
+    return res.status(500).send({
       success: false,
       message: "Failed to return book",
     });
+  } finally {
+    await session.endSession();
   }
 });
+
+// ========================================
+// END: Existing PATCH /ReturnBook API
+// ========================================
 
 // Local Development Server
 if (process.env.NODE_ENV !== "production") {
