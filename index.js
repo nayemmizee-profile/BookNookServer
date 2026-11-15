@@ -421,13 +421,6 @@ app.get("/MyBorrow", async (req, res) => {
    GET MY BORROWED BOOKS
 ================================ */
 
-/* ===============================
-   GET MY BORROWED BOOKS
-================================ */
-
-// Borrow a Book
-// ========================================
-// Borrow a Book
 // START: Replace existing POST /Borrow API
 // ========================================
 
@@ -581,10 +574,6 @@ app.post("/Borrow", async (req, res) => {
 // ========================================
 // END: Existing POST /Borrow API
 // ========================================
-
-/* ===============================
-   RETURN BORROWED BOOK
-================================ */
 
 // ========================================
 // RETURN BORROWED BOOK
